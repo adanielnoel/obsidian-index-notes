@@ -304,7 +304,7 @@ class IndexNote {
             }
             let block_reference = tag_to_block_reference(index_tag);
             block_text += "> \n> " + block_reference;
-            
+
             index_blocks.push([block_reference, block_text]);
         }
         for (let index_tag of this.meta_index_tags) {
@@ -320,7 +320,7 @@ class IndexNote {
             }
             let block_reference = tag_to_block_reference(index_tag);
             block_text += "> \n> " + block_reference;
-            
+
             index_blocks.push([block_reference, block_text]);
         }
         return index_blocks
@@ -400,7 +400,7 @@ export class IndexUpdater {
                     }
                 }
             }
-            
+
             if (index_note.index_tags.length || index_note.meta_index_tags.length) {
                 index_schema.index_notes.push(index_note);
             } else {
@@ -427,6 +427,6 @@ export class IndexUpdater {
                 return index_note.get_updated_content(data, index_blocks);
             })
         }
-        console.log("Updating took " + (Date.now() - t0) + " ms");
+        // console.log("Updating took " + (Date.now() - t0) + " ms");
     }
 }
