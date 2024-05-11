@@ -1,0 +1,10 @@
+{
+	"id": "index_notes",
+	"name": "Index Notes",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Automatically update index notes from your hierarchical tags!",
+	"author": "Alejandro Daniel Noel",
+	"authorUrl": "https://adanielnoel.com",
+	"isDesktopOnly": false
+}

@@ -1,0 +1,16 @@
+.index-notes-search {
+    width: calc(100% - 20px);
+}
+
+.index-notes-new-note-title {
+    width: calc(100% - 20px);
+}
+
+.index-notes-metadata-template {
+    width: 200px;
+    height: 100px;
+}
+
+.index-notes-metadata-template-error {
+    color: rgb(246, 94, 94);
+}
