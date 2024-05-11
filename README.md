@@ -42,3 +42,6 @@ If indices are not appearing as expected, ensure that:
 - The update interval is appropriately set according to your needs.
 - If the indices don't seem to update, try `view > Force Reload` or restart Obsidian.
 - If the block reference of the index is modified or deleted, the plugin will fail to detect the existing index and append a new index block rather than update it. If this happens, just delete the old block.
+
+## Credits
+The settings page of the plugin has borrowed inspiration and code from [Templater](https://github.com/SilentVoid13/Templater) and [Liam's Periodic Notes](https://github.com/liamcain/obsidian-periodic-notes) plugins.
