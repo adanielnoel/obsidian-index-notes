@@ -32,7 +32,6 @@ export class IndexNotesSettingTab extends PluginSettingTab {
     }
 
     display(): void {
-
         this.containerEl.empty();
         this.containerEl.createEl('h2', { text: 'Settings for Index Notes plugin' });
         this.add_index_tag_setting();
@@ -51,8 +50,12 @@ export class IndexNotesSettingTab extends PluginSettingTab {
             .addText(text => text
                 .setValue(this.plugin.settings.index_tag)
                 .onChange(async (value) => {
-                    this.plugin.settings.index_tag = value;
-                    await this.plugin.saveSettings();
+                    try {
+                        this.plugin.settings.index_tag = value;
+                        await this.plugin.saveSettings();
+                    } catch (error) {
+                        console.error("Failed to save index tag setting:", error);
+                    }
                 }));
     }
 
@@ -63,8 +66,12 @@ export class IndexNotesSettingTab extends PluginSettingTab {
             .addText(text => text
                 .setValue(this.plugin.settings.meta_index_tag)
                 .onChange(async (value) => {
-                    this.plugin.settings.meta_index_tag = value;
-                    await this.plugin.saveSettings();
+                    try {
+                        this.plugin.settings.meta_index_tag = value;
+                        await this.plugin.saveSettings();
+                    } catch (error) {
+                        console.error("Failed to save meta index tag setting:", error);
+                    }
                 }));
     }
 
@@ -75,8 +82,12 @@ export class IndexNotesSettingTab extends PluginSettingTab {
             .addText(text => text
                 .setValue(this.plugin.settings.priority_tag)
                 .onChange(async (value) => {
-                    this.plugin.settings.priority_tag = value;
-                    await this.plugin.saveSettings();
+                    try {
+                        this.plugin.settings.priority_tag = value;
+                        await this.plugin.saveSettings();
+                    } catch (error) {
+                        console.error("Failed to save priority tag setting:", error);
+                    }
                 }));
     }
 
@@ -89,9 +100,13 @@ export class IndexNotesSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.update_interval_seconds)
                 .setDynamicTooltip()
                 .onChange(async (value) => {
-                    this.plugin.settings.update_interval_seconds = value;
-                    await this.plugin.saveSettings();
-                    this.plugin.reset_update_interval();
+                    try {
+                        this.plugin.settings.update_interval_seconds = value;
+                        await this.plugin.saveSettings();
+                        this.plugin.reset_update_interval();
+                    } catch (error) {
+                        console.error("Failed to save update interval setting:", error);
+                    }
                 }))
     }
 
@@ -102,8 +117,12 @@ export class IndexNotesSettingTab extends PluginSettingTab {
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.show_note_title)
                 .onChange(async (value) => {
-                    this.plugin.settings.show_note_title = value;
-                    await this.plugin.saveSettings();
+                    try {
+                        this.plugin.settings.show_note_title = value;
+                        await this.plugin.saveSettings();
+                    } catch (error) {
+                        console.error("Failed to save show note title setting:", error);
+                    }
                 }));
     }
 
@@ -117,11 +136,16 @@ export class IndexNotesSettingTab extends PluginSettingTab {
                     cb.setPlaceholder("Example: folder1/template_file")
                         .setValue(template)
                         .onChange((new_template) => {
-                            if (new_template && this.plugin.settings.exclude_folders.contains(new_template)) {
-                                new Notice("Folder is already excluded");
+                            try {
+                                if (new_template && this.plugin.settings.exclude_folders.includes(new_template)) {
+                                    new Notice("Folder is already excluded");
+                                } else {
+                                    this.plugin.settings.exclude_folders[index] = new_template;
+                                    this.plugin.saveSettings();
+                                }
+                            } catch (error) {
+                                console.error("Failed to update excluded folders setting:", error);
                             }
-                            this.plugin.settings.exclude_folders[index] = new_template;
-                            this.plugin.saveSettings();
                         });
                     // @ts-ignore
                     cb.containerEl.addClass("index-notes-search");
@@ -130,10 +154,14 @@ export class IndexNotesSettingTab extends PluginSettingTab {
                     cb.setIcon("cross")
                         .setTooltip("Delete")
                         .onClick(() => {
-                            this.plugin.settings.exclude_folders.splice(index, 1);
-                            this.plugin.saveSettings();
-                            // Force refresh
-                            this.display();
+                            try {
+                                this.plugin.settings.exclude_folders.splice(index, 1);
+                                this.plugin.saveSettings();
+                                // Force refresh
+                                this.display();
+                            } catch (error) {
+                                console.error("Failed to delete excluded folder setting:", error);
+                            }
                         });
                 });
             s.infoEl.remove();
@@ -143,10 +171,14 @@ export class IndexNotesSettingTab extends PluginSettingTab {
             cb.setButtonText("Add excluded folder")
                 .setCta()
                 .onClick(() => {
-                    this.plugin.settings.exclude_folders.push("");
-                    this.plugin.saveSettings();
-                    // Force refresh
-                    this.display();
+                    try {
+                        this.plugin.settings.exclude_folders.push("");
+                        this.plugin.saveSettings();
+                        // Force refresh
+                        this.display();
+                    } catch (error) {
+                        console.error("Failed to add excluded folder setting:", error);
+                    }
                 });
         });
     }

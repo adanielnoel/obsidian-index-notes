@@ -2,269 +2,217 @@ import { App, PluginSettingTab, TFile } from 'obsidian';
 import IndexNotesPlugin from "main";
 import { IndexNotesSettings } from 'src/settings/Settings';
 import { title } from 'process';
-import { string } from 'yaml/dist/schema/common/string';
 
-function string_hash(s: string): string {
-    var hash = 0,
-        i, chr;
-    if (s.length === 0) return String(hash);
-    for (i = 0; i < s.length; i++) {
-        chr = s.charCodeAt(i);
+function stringHash(s: string): string {
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) {
+        const chr = s.charCodeAt(i);
         hash = ((hash << 5) - hash) + chr;
         hash |= 0; // Convert to 32bit integer
     }
     return String(hash);
 }
 
-function format_tag_word(tag_word: string): string {
-    if (tag_word.startsWith('_')) {
-        // parts that start with _ are all caps
-        return tag_word.slice(1).toUpperCase();
-    } else {
-        return tag_word;
-    }
+function formatTagWord(tagWord: string): string {
+    return tagWord.startsWith('_') ? tagWord.slice(1).toUpperCase() : tagWord;
 }
 
-function capitalize_first(s: string): string {
+function capitalizeFirst(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 /**
  * Splits tags into words and formats all caps if the word also starts with an underscore.
  * E.g.: tag "__rl_and__ml" would become "RL and ML"
+ *
+ * @param {string} t - The tag string to be formatted into a header.
+ * @returns {string} The formatted header string.
  */
-function tag_to_header(t: string): string {
-    var tag_components = []
-    for (let component of t.split("/")) {
-        var words = component.split(/(?<!^)(?<!_)_/).map(format_tag_word);
-        tag_components.push(capitalize_first(words.join(' ')));
-    }
-    return tag_components.join(' / ')
+function tagToHeader(t: string): string {
+    return t.split("/").map(component => {
+        const words = component.split(/(?<!^)(?<!_)_/).map(formatTagWord);
+        return capitalizeFirst(words.join(' '));
+    }).join(' / ');
 }
 
 /**
- * Makes a block reference string where non-word symbols are replaced by -
+ * Creates a block reference string where non-word symbols are replaced by dashes.
+ * The default tag used is "main-index" if none is provided.
+ *
+ * @param {string} [tag="main-index"] - The tag to convert into a block reference.
+ * @returns {string} The block reference string.
  */
-function tag_to_block_reference(tag: string): string {
-    if (!tag) {
-        tag = "main-index";
-    }
+function tagToBlockReference(tag: string = "main-index"): string {
     return '^' + ('indexof-' + tag).replace(/[^a-zA-Z]+/g, '-');
 }
 
-/**
- * Builds the regex to match an index block by reference (and including the reference)
- */
-function get_block_regex(block_ref: string): RegExp {
-    return new RegExp("(?:^>.*\\n)*>\\s*\\" + block_ref + "$", "gm");
+function getBlockRegex(blockRef: string): RegExp {
+    return new RegExp(`(?:^>.*\\n)*>\\s*\\${blockRef}$`, "gm");
 }
 
-function filename_to_header(filename: string): string {
-    return capitalize_first(filename.split(".")[0])
+function filenameToHeader(filename: string): string {
+    return capitalizeFirst(filename.split(".")[0]);
 }
 
-function get_last_tag_component(tag_path: string) {
-    return tag_path.split('/').last()!
+function getLastTagComponent(tagPath: string): string {
+    return tagPath.split('/').pop()!;
 }
 
-function canonicalize_tag(tag: string): string {
-    var canonical = tag.trim().toLowerCase();
-    if (canonical.endsWith("/")) {
-        canonical = canonical.substring(0, canonical.length - 1);
-    }
-    if (canonical.startsWith("/")) {
-        canonical = canonical.substring(1);
-    }
-    return canonical;
+function canonicalizeTag(tag: string): string {
+    return tag.trim().toLowerCase().replace(/^\/|\/$/g, '');
 }
 
-function get_note_title(note: TFile, prefix: string = "") {
-    var note_title = this.app.metadataCache.getCache(note.path)?.frontmatter?.title;
-    if (note_title) {
-        if (note_title?.length > 50) {
-            note_title = note_title.substring(0, 50) + "..."
-        }
-        return prefix + note_title;
-    }
-    return ""
+function getNoteTitle(note: TFile, app: App, prefix: string = ""): string {
+    const noteTitle = app.metadataCache.getCache(note.path)?.frontmatter?.title;
+    return noteTitle ? prefix + (noteTitle.length > 50 ? noteTitle.substring(0, 50) + "..." : noteTitle) : "";
 }
 
-function sortable(s: string) {
-    // Remove non-GSM characters
-    s = s.replace(/[^A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅå\x{0394}_\x{03A6}\x{0393}\x{039B}\x{03A9}\x{03A0}\x{03A8}\x{03A3}\x{0398}\x{039E}ÆæßÉ!\"#$%&\'\(\)*+,\-.\/:;<=>;?¡ÄÖÑÜ§¿äöñüà^{}\[\~\]\|\x{20AC}\\]/g, '');
-    return s.trim().toLowerCase();
+function sortable(s: string): string {
+    return s.replace(/[^A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅåΔΦΓΛΩΠΘΣΘΞÆæßÉ!"#$%&'()*+,\-.\/:;<=>;?¡ÄÖÑÜ§¿äöñüà^{}\[\~\]\|\€\\]/g, '').trim().toLowerCase();
 }
 
-function compare_strings(a: string, b: string) {
-    let s_a = sortable(a);
-    let s_b = sortable(b);
-    if (s_a > s_b) return 1;
-    if (s_a < s_b) return -1;
-    return 0;
+function compareStrings(a: string, b: string): number {
+    const sA = sortable(a);
+    const sB = sortable(b);
+    return sA.localeCompare(sB);
 }
 
 class Node {
-    tag_path: string
-    header_note: TFile | undefined
-    regular_notes: TFile[] = []
-    priority_notes: TFile[] = []
-    index_notes: TFile[] = []
-    index_priority_notes: TFile[] = []
-    children: Node[] = []
-    settings: IndexNotesSettings
-    app: App
+    tagPath: string;
+    headerNote: TFile | undefined;
+    regularNotes: TFile[] = [];
+    priorityNotes: TFile[] = [];
+    indexNotes: TFile[] = [];
+    indexPriorityNotes: TFile[] = [];
+    children: Node[] = [];
+    settings: IndexNotesSettings;
+    app: App;
 
-    constructor(tag_path: string, settings: IndexNotesSettings, app: App) {
-        this.tag_path = canonicalize_tag(tag_path);
+    constructor(tagPath: string, settings: IndexNotesSettings, app: App) {
+        this.tagPath = canonicalizeTag(tagPath);
         this.settings = settings;
         this.app = app;
     }
 
-    get_all_notes() {
-        var all_notes = this.priority_notes.concat(this.regular_notes)
-        if (this.header_note) all_notes.push(this.header_note);
-        return all_notes;
+    getAllNotes(): TFile[] {
+        return this.headerNote ? this.priorityNotes.concat(this.regularNotes, [this.headerNote]) : this.priorityNotes.concat(this.regularNotes);
     }
 
-    sort_all() {
-        this.priority_notes.sort((a, b) => compare_strings(a.name, b.name));
-        this.regular_notes.sort((a, b) => compare_strings(a.name, b.name));
-        this.index_notes.sort((a, b) => compare_strings(a.name, b.name));
-        this.children.sort((a, b) => compare_strings(tag_to_header(a.tag_component()), tag_to_header(b.tag_component())));
-        for (var child of this.children) {
-            child.sort_all();
-        }
+    sortAll(): void {
+        this.priorityNotes.sort((a, b) => compareStrings(a.name, b.name));
+        this.regularNotes.sort((a, b) => compareStrings(a.name, b.name));
+        this.indexNotes.sort((a, b) => compareStrings(a.name, b.name));
+        this.children.sort((a, b) => compareStrings(tagToHeader(a.tagComponent()), tagToHeader(b.tagComponent())));
+        this.children.forEach(child => child.sortAll());
     }
 
-    tag_component() {
-        return get_last_tag_component(this.tag_path);
+    tagComponent(): string {
+        return getLastTagComponent(this.tagPath);
     }
 
-    get_index(index_note: TFile, indent_level: number = 0): string {
-        var index_txt = ""
-        for (let note of this.priority_notes) {
-            if (note.path === index_note.path) continue;
-            let mdlink = this.app.fileManager.generateMarkdownLink(note, index_note.path, undefined, filename_to_header(note.name));
-            let note_title = get_note_title(note, ": ")
-            index_txt += '> ' + '\t'.repeat(indent_level) + "- **" + mdlink + note_title + '**\n';
-        }
-        for (let note of this.regular_notes) {
-            if (note.path === index_note.path) continue;
-            let mdlink = this.app.fileManager.generateMarkdownLink(note, index_note.path, undefined, filename_to_header(note.name));
-            let note_title = get_note_title(note, ": ")
-            index_txt += '> ' + '\t'.repeat(indent_level) + "- " + mdlink + note_title + '\n';
-        }
-        for (let note of this.index_notes) {
-            if (note.path === index_note.path) continue;
-            let mdlink = this.app.fileManager.generateMarkdownLink(note, index_note.path, undefined, filename_to_header(note.name));
-            let note_title = get_note_title(note, ": ")
-            index_txt += '> ' + '\t'.repeat(indent_level) + "- " + mdlink + note_title + '\n';
-        }
-        for (let child of this.children) {
-            if (child.header_note) {
-                let mdlink = this.app.fileManager.generateMarkdownLink(child.header_note, index_note.path, undefined, filename_to_header(child.header_note.name));
-                index_txt += '> ' + '\t'.repeat(indent_level) + "- **" + mdlink + "**\n";
-            } else {
-                index_txt += '> ' + '\t'.repeat(indent_level) + "- **" + tag_to_header(child.tag_component()) + "**" + '\n';
-            }
-            index_txt += child.get_index(index_note, indent_level + 1);
-        }
-        return index_txt;
+    getIndex(indexNote: TFile, indentLevel: number = 0): string {
+        let indexTxt = this.priorityNotes.concat(this.regularNotes, this.indexNotes).filter(note => note.path !== indexNote.path).map(note => {
+            const mdLink = this.app.fileManager.generateMarkdownLink(note, indexNote.path, undefined, filenameToHeader(note.name));
+            const noteTitle = getNoteTitle(note, this.app, ": ");
+            return `> ${'\t'.repeat(indentLevel)}- ${this.priorityNotes.includes(note) ? '**' : ''}${mdLink}${noteTitle}${this.priorityNotes.includes(note) ? '**' : ''}\n`;
+        }).join('');
+
+        this.children.forEach(child => {
+            const mdLink = child.headerNote ? this.app.fileManager.generateMarkdownLink(child.headerNote, indexNote.path, undefined, filenameToHeader(child.headerNote.name)) : '';
+            indexTxt += `> ${'\t'.repeat(indentLevel)}- **${mdLink || tagToHeader(child.tagComponent())}**\n`;
+            indexTxt += child.getIndex(indexNote, indentLevel + 1);
+        });
+
+        return indexTxt;
     }
 
-    get_meta_index(index_note: TFile) {
-        var index_txt = ""
-        var notes = new Set<TFile>();
-        var priority_notes = new Set<TFile>();
-        for (let child of this.children) {
-            for (let note of child.index_notes) {
-                if (note.path === index_note.path) continue;
-                notes.add(note);
-            }
-            for (let note of child.index_priority_notes) {
-                if (note.path === index_note.path) continue;
-                priority_notes.add(note);
-            }
-        }
-        for (let note of [...priority_notes].sort((a, b) => compare_strings(a.name, b.name))) {
-            let mdlink = this.app.fileManager.generateMarkdownLink(note, index_note.path, undefined, filename_to_header(note.name));
-            let note_title = get_note_title(note, ": ")
-            index_txt += "> \n";
-            index_txt += "> > [!tldr] " + mdlink + note_title + '\n';
-        }
-        for (let note of [...notes].sort((a, b) => compare_strings(a.name, b.name))) {
-            let mdlink = this.app.fileManager.generateMarkdownLink(note, index_note.path, undefined, filename_to_header(note.name));
-            let note_title = get_note_title(note, ": ")
-            index_txt += "> \n";
-            index_txt += "> > [!example] " + mdlink + note_title + '\n';
-        }
-        return index_txt;
+    getMetaIndex(indexNote: TFile): string {
+        let indexTxt = "";
+        const notes = new Set<TFile>();
+        const priorityNotes = new Set<TFile>();
+
+        this.children.forEach(child => {
+            child.indexNotes.forEach(note => {
+                if (note.path !== indexNote.path) notes.add(note);
+            });
+            child.indexPriorityNotes.forEach(note => {
+                if (note.path !== indexNote.path) priorityNotes.add(note);
+            });
+        });
+
+        [...priorityNotes].sort((a, b) => compareStrings(a.name, b.name)).forEach(note => {
+            const mdLink = this.app.fileManager.generateMarkdownLink(note, indexNote.path, undefined, filenameToHeader(note.name));
+            const noteTitle = getNoteTitle(note, this.app, ": ");
+            indexTxt += `> \n> > [!tldr] ${mdLink}${noteTitle}\n`;
+        });
+
+        [...notes].sort((a, b) => compareStrings(a.name, b.name)).forEach(note => {
+            const mdLink = this.app.fileManager.generateMarkdownLink(note, indexNote.path, undefined, filenameToHeader(note.name));
+            const noteTitle = getNoteTitle(note, this.app, ": ");
+            indexTxt += `> \n> > [!example] ${mdLink}${noteTitle}\n`;
+        });
+
+        return indexTxt;
     }
 
-    find_child_node(tag_path: string): Node | undefined {
-        tag_path = canonicalize_tag(tag_path);
-        if (tag_path === this.tag_path) {
+    findChildNode(tagPath: string): Node | undefined {
+        tagPath = canonicalizeTag(tagPath);
+        if (tagPath === this.tagPath) {
             return this;
-        } else if (tag_path.startsWith(this.tag_path)) {
-            let next_component = canonicalize_tag(tag_path.slice(this.tag_path.length)).split('/')[0]
-            for (let child of this.children) {
-                if (child.tag_component() === next_component) {
-                    return child.find_child_node(tag_path);
-                }
-            }
+        } else if (tagPath.startsWith(this.tagPath)) {
+            const nextComponent = canonicalizeTag(tagPath.slice(this.tagPath.length)).split('/')[0];
+            const child = this.children.find(child => child.tagComponent() === nextComponent);
+            return child ? child.findChildNode(tagPath) : undefined;
         }
-        console.log("ERROR: did not find node at path \"" + tag_path + "\"");
+        console.log("ERROR: did not find node at path \"" + tagPath + "\"");
         return undefined;
     }
 
-    add_note_with_path(tag_path: string, note: TFile, has_priority: boolean, is_index: boolean): boolean {
-        tag_path = canonicalize_tag(tag_path);
-        if (tag_path === this.tag_path) {
-            if (is_index && has_priority) {
-                this.index_priority_notes.push(note);
-            } else if (is_index) {
-                this.index_notes.push(note);
-            } else if (filename_to_header(note.name) === tag_to_header(this.tag_component())) {
-                this.header_note = note;
-            } else if (has_priority) {
-                this.priority_notes.push(note);
+    addNoteWithPath(tagPath: string, note: TFile, hasPriority: boolean, isIndex: boolean): boolean {
+        tagPath = canonicalizeTag(tagPath);
+        if (tagPath === this.tagPath) {
+            if (isIndex && hasPriority) {
+                this.indexPriorityNotes.push(note);
+            } else if (isIndex) {
+                this.indexNotes.push(note);
+            } else if (filenameToHeader(note.name) === tagToHeader(this.tagComponent())) {
+                this.headerNote = note;
+            } else if (hasPriority) {
+                this.priorityNotes.push(note);
             } else {
-                this.regular_notes.push(note);
+                this.regularNotes.push(note);
             }
             return true;
-        } else if (tag_path.startsWith(this.tag_path)) {
-            let next_component = canonicalize_tag(tag_path.slice(this.tag_path.length)).split('/')[0]
-            for (let child of this.children) {
-                if (child.tag_component() === next_component) {
-                    return child.add_note_with_path(tag_path, note, has_priority, is_index);
-                }
+        } else if (tagPath.startsWith(this.tagPath)) {
+            const nextComponent = canonicalizeTag(tagPath.slice(this.tagPath.length)).split('/')[0];
+            let child = this.children.find(child => child.tagComponent() === nextComponent);
+            if (child) {
+                return child.addNoteWithPath(tagPath, note, hasPriority, isIndex);
             }
-            let next_tag_path = this.tag_path.length ? [this.tag_path, next_component].join("/") : next_component;
-            var new_node = new Node(next_tag_path, this.settings, this.app)
-            let success = new_node.add_note_with_path(tag_path, note, has_priority, is_index);
+            const nextTagPath = this.tagPath ? `${this.tagPath}/${nextComponent}` : nextComponent;
+            const newNode = new Node(nextTagPath, this.settings, this.app);
+            const success = newNode.addNoteWithPath(tagPath, note, hasPriority, isIndex);
             if (!success) {
-                console.log("ERROR: could not add path for note: ", tag_path + "|" + next_tag_path, this);
+                console.log("ERROR: could not add path for note: ", tagPath + "|" + nextTagPath, this);
             }
-            this.children.push(new_node);
+            this.children.push(newNode);
             return success;
         }
         return false;
     }
 
-    get_hash(): string {
-        var to_hash = this.get_all_notes().map(n => n.path).join()
-        to_hash += this.tag_path;
-        to_hash += this.children.map(c => c.get_hash()).join()
-        return string_hash(to_hash);
+    getHash(): string {
+        const toHash = this.getAllNotes().map(n => n.path).join() + this.tagPath + this.children.map(c => c.getHash()).join();
+        return stringHash(toHash);
     }
 }
 
 class IndexNote {
-    note: TFile
-    index_tags: string[] = []
-    meta_index_tags: string[] = []
-    app: App
-    settings: IndexNotesSettings
+    note: TFile;
+    indexTags: string[] = [];
+    metaIndexTags: string[] = [];
+    app: App;
+    settings: IndexNotesSettings;
 
     constructor(note: TFile, app: App, settings: IndexNotesSettings) {
         this.note = note;
@@ -272,98 +220,82 @@ class IndexNote {
         this.settings = settings;
     }
 
-    get_hash(): string {
-        this._sort_index_tags();
-        var to_hash = "INDEX:" + String(this.index_tags.length) + this.index_tags.join();
-        to_hash += "META:" + String(this.meta_index_tags.length) + this.meta_index_tags.join();
-        return string_hash(to_hash);
+    getHash(): string {
+        this.sortIndexTags();
+        const toHash = `INDEX:${String(this.indexTags.length)}${this.indexTags.join()}META:${String(this.metaIndexTags.length)}${this.metaIndexTags.join()}`;
+        return stringHash(toHash);
     }
 
-    _make_index_title(root_tag: string, prefix: string) {
-        return prefix + tag_to_header(root_tag) + "\n";
+    makeIndexTitle(rootTag: string, prefix: string): string {
+        return prefix + tagToHeader(rootTag) + "\n";
     }
 
-    _sort_index_tags() {
-        this.index_tags = this.index_tags.sort((a, b) => compare_strings(get_last_tag_component(a), get_last_tag_component(b)));
-        this.meta_index_tags = this.meta_index_tags.sort((a, b) => compare_strings(get_last_tag_component(a), get_last_tag_component(b)));
+    sortIndexTags(): void {
+        this.indexTags.sort((a, b) => compareStrings(getLastTagComponent(a), getLastTagComponent(b)));
+        this.metaIndexTags.sort((a, b) => compareStrings(getLastTagComponent(a), getLastTagComponent(b)));
     }
 
-    create_index_blocks(root_node: Node): Array<[string, string]> {
-        this._sort_index_tags();
-        var index_blocks = new Array<[string, string]>();
-        for (let index_tag of this.index_tags) {
-            var block_text = ""
-
-            // Adding index title
-            block_text += "> [!example] " + this._make_index_title(index_tag, "");
-
-            // Adding index content
-            let source_note = root_node.find_child_node(index_tag);
-            if (source_note) {
-                block_text += source_note.get_index(this.note);
+    createIndexBlocks(rootNode: Node): Array<[string, string]> {
+        this.sortIndexTags();
+        const indexBlocks: Array<[string, string]> = [];
+        this.indexTags.forEach(indexTag => {
+            let blockText = `> [!example] ${this.makeIndexTitle(indexTag, "")}`;
+            const sourceNote = rootNode.findChildNode(indexTag);
+            if (sourceNote) {
+                blockText += sourceNote.getIndex(this.note);
             }
-            let block_reference = tag_to_block_reference(index_tag);
-            block_text += "> \n> " + block_reference;
-
-            index_blocks.push([block_reference, block_text]);
-        }
-        for (let index_tag of this.meta_index_tags) {
-            var block_text = ""
-
-            // Adding index title
-            block_text += "> [!example] " + this._make_index_title(index_tag, index_tag ? "Meta-index of: " : "Meta-index");
-
-            // Adding index content
-            let source_note = root_node.find_child_node(index_tag);
-            if (source_note) {
-                block_text += source_note.get_meta_index(this.note);
+            const blockReference = tagToBlockReference(indexTag);
+            blockText += `> \n> ${blockReference}`;
+            indexBlocks.push([blockReference, blockText]);
+        });
+        this.metaIndexTags.forEach(indexTag => {
+            let blockText = `> [!example] ${this.makeIndexTitle(indexTag, indexTag ? "Meta-index of: " : "Meta-index")}`;
+            const sourceNote = rootNode.findChildNode(indexTag);
+            if (sourceNote) {
+                blockText += sourceNote.getMetaIndex(this.note);
             }
-            let block_reference = tag_to_block_reference(index_tag);
-            block_text += "> \n> " + block_reference;
-
-            index_blocks.push([block_reference, block_text]);
-        }
-        return index_blocks
+            const blockReference = tagToBlockReference(indexTag);
+            blockText += `> \n> ${blockReference}`;
+            indexBlocks.push([blockReference, blockText]);
+        });
+        return indexBlocks;
     }
 
-    get_updated_content(content: string, index_blocks: Array<[string, string]>): string {
-        var result = content;
-        var written_blocks = new Set<string>();
-        for (let [block_reference, block_content] of index_blocks) {
-            let block_regex = get_block_regex(block_reference);
-            if (result.match(block_regex)) {
-                result = result.replace(block_regex, block_content);
-            } else (
-                result += '\n\n' + block_content
-            )
-            written_blocks.add(block_reference);
-        }
+    getUpdatedContent(content: string, indexBlocks: Array<[string, string]>): string {
+        let result = content;
+        const writtenBlocks = new Set<string>();
+        indexBlocks.forEach(([blockReference, blockContent]) => {
+            const blockRegex = getBlockRegex(blockReference);
+            if (result.match(blockRegex)) {
+                result = result.replace(blockRegex, blockContent);
+            } else {
+                result += '\n\n' + blockContent;
+            }
+            writtenBlocks.add(blockReference);
+        });
         // Remove untracked indices, in case the index tag was changed
-        for (let existing_reference of result.matchAll(/\^indexof-(?:[a-zA-Z0-9]+-?)+/g)) {
-            if (!written_blocks.has(existing_reference[0])) {
-                result = result.replace(get_block_regex(existing_reference[0]), "");
+        Array.from(result.matchAll(/\^indexof-(?:[a-zA-Z0-9]+-?)+/g)).forEach(existingReference => {
+            if (!writtenBlocks.has(existingReference[0])) {
+                result = result.replace(getBlockRegex(existingReference[0]), "");
             }
-
-        }
-
+        });
         return result;
     }
 }
 
 class IndexSchema {
-    index_notes: IndexNote[] = [];
-    root_node: Node;
+    indexNotes: IndexNote[] = [];
+    rootNode: Node;
 
-    get_hash(): string {
-        return string_hash(this.root_node.get_hash() + this.index_notes.map(n => n.get_hash()).join())
+    getHash(): string {
+        return stringHash(this.rootNode.getHash() + this.indexNotes.map(n => n.getHash()).join());
     }
 }
 
-
 export class IndexUpdater {
-    app: App
-    settings: IndexNotesSettings
-    previous_hash: String = ""
+    app: App;
+    settings: IndexNotesSettings;
+    previousHash: string = "";
 
     constructor(app: App, settings: IndexNotesSettings) {
         this.app = app;
@@ -371,62 +303,61 @@ export class IndexUpdater {
     }
 
     scan(): IndexSchema {
-        let excluded_folders = this.settings.exclude_folders.filter(f => f.length > 0);
-        var md_files = this.app.vault.getMarkdownFiles().filter(f => !excluded_folders.some(excl => f.path.startsWith(excl)));
-        var index_schema = new IndexSchema();
-        var root_node = new Node("", this.settings, this.app);
-        let regex_index_tag_components = new RegExp("(?:^|(?:\/))(?:" + this.settings.index_tag + ")|(?:" + this.settings.meta_index_tag + ")$")
-        let regex_contains_index = new RegExp(/\^indexof-(?:[a-zA-Z0-9]+-?)+/g);
-        for (let note of md_files) {
-            let frontmatter = this.app.metadataCache.getCache(note.path)?.frontmatter;
-            let index_note = new IndexNote(note, this.app, this.settings);
+        const excludedFolders = this.settings.exclude_folders.filter(f => f.length > 0);
+        const mdFiles = this.app.vault.getMarkdownFiles().filter(f => !excludedFolders.some(excl => f.path.startsWith(excl)));
+        const indexSchema = new IndexSchema();
+        const rootNode = new Node("", this.settings, this.app);
+        const regexIndexTagComponents = new RegExp(`(?:^|(?:\/))(?:${this.settings.index_tag})|(?:${this.settings.meta_index_tag})$`);
+        const regexContainsIndex = /\^indexof-(?:[a-zA-Z0-9]+-?)+/g;
+        mdFiles.forEach(note => {
+            const frontmatter = this.app.metadataCache.getCache(note.path)?.frontmatter;
+            const indexNote = new IndexNote(note, this.app, this.settings);
             if (frontmatter) {
-                var file_tags: string[] | undefined = frontmatter.tags;
-                if (!file_tags) {
-                    continue;
+                const fileTags: string[] | undefined = frontmatter.tags;
+                if (!fileTags) {
+                    return;
                 }
-                let has_priority_tag = file_tags.contains(this.settings.priority_tag);
-                for (let tag of file_tags) {
-                    let canonical_tag = canonicalize_tag(tag);
-                    let clean_tag_path = canonicalize_tag(canonical_tag.replace(regex_index_tag_components, ""));
-                    if (get_last_tag_component(canonical_tag) === this.settings.index_tag) {
-                        index_note.index_tags.push(clean_tag_path);
-                        root_node.add_note_with_path(clean_tag_path, note, has_priority_tag, true);
-                    } else if (get_last_tag_component(canonical_tag) === this.settings.meta_index_tag) {
-                        index_note.meta_index_tags.push(clean_tag_path);
-                        root_node.add_note_with_path(clean_tag_path, note, has_priority_tag, true);
+                const hasPriorityTag = fileTags.includes(this.settings.priority_tag);
+                fileTags.forEach(tag => {
+                    const canonicalTag = canonicalizeTag(tag);
+                    const cleanTagPath = canonicalizeTag(canonicalTag.replace(regexIndexTagComponents, ""));
+                    if (getLastTagComponent(canonicalTag) === this.settings.index_tag) {
+                        indexNote.indexTags.push(cleanTagPath);
+                        rootNode.addNoteWithPath(cleanTagPath, note, hasPriorityTag, true);
+                    } else if (getLastTagComponent(canonicalTag) === this.settings.meta_index_tag) {
+                        indexNote.metaIndexTags.push(cleanTagPath);
+                        rootNode.addNoteWithPath(cleanTagPath, note, hasPriorityTag, true);
                     } else {
-                        root_node.add_note_with_path(clean_tag_path, note, has_priority_tag, false);
+                        rootNode.addNoteWithPath(cleanTagPath, note, hasPriorityTag, false);
                     }
-                }
+                });
             }
 
-            if (index_note.index_tags.length || index_note.meta_index_tags.length) {
-                index_schema.index_notes.push(index_note);
+            if (indexNote.indexTags.length || indexNote.metaIndexTags.length) {
+                indexSchema.indexNotes.push(indexNote);
             } else {
                 this.app.vault.read(note).then(v => {
                     // Add notes with regular note with stale indices so they will be cleaned up
-                    if (v.match(regex_contains_index)) {
-                        index_schema.index_notes.push(index_note);
+                    if (v.match(regexContainsIndex)) {
+                        indexSchema.indexNotes.push(indexNote);
                     }
                 });
-
             }
-        }
-        root_node.sort_all();
-        index_schema.root_node = root_node;
-        return index_schema
+        });
+        rootNode.sortAll();
+        indexSchema.rootNode = rootNode;
+        return indexSchema;
     }
 
-    update() {
-        let t0 = Date.now();
-        let index_schema = this.scan();
-        for (let index_note of index_schema.index_notes) {
-            let index_blocks = index_note.create_index_blocks(index_schema.root_node);
-            this.app.vault.process(index_note.note, (data) => {
-                return index_note.get_updated_content(data, index_blocks);
-            })
-        }
+    update(): void {
+        const t0 = Date.now();
+        const indexSchema = this.scan();
+        indexSchema.indexNotes.forEach(indexNote => {
+            const indexBlocks = indexNote.createIndexBlocks(indexSchema.rootNode);
+            this.app.vault.process(indexNote.note, data => {
+                return indexNote.getUpdatedContent(data, indexBlocks);
+            });
+        });
         // console.log("Updating took " + (Date.now() - t0) + " ms");
     }
 }
