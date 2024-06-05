@@ -51,6 +51,9 @@ function tagToHeader(t: string): string {
  * @returns {string} The block reference string.
  */
 function tagToBlockReference(tag: string = "main-index"): string {
+    if (tag.length === 0) {
+        return '^indexof-root000';
+    }
     return '^' + ('indexof-' + tag).replace(/[^a-zA-Z]+/g, '-');
 }
 
@@ -335,8 +338,12 @@ export class IndexUpdater {
             const frontmatter = this.app.metadataCache.getCache(note.path)?.frontmatter;
             const indexNote = new IndexNote(note, this.app, this.settings);
             if (frontmatter) {
-                const fileTags: string[] | undefined = frontmatter.tags;
-                if (!fileTags) {
+                let fileTags: string | string[] | undefined = frontmatter.tags;
+                if (typeof fileTags === 'string') {
+                    fileTags = fileTags.split(',').map(tag => tag.trim());
+                }
+                if (!fileTags || !Array.isArray(fileTags)) {
+                    console.log("File tags are not an array: ", fileTags);
                     return;
                 }
                 const hasPriorityTag = fileTags.includes(this.settings.priority_tag);
