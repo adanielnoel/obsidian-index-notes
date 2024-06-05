@@ -30,7 +30,15 @@ function capitalizeFirst(s: string): string {
  */
 function tagToHeader(t: string): string {
     return t.split("/").map(component => {
-        const words = component.split(/(?<!^)(?<!_)_/).map(formatTagWord);
+        const words = component.split('_').map((word, index, arr) => {
+            if (word === '') {
+                return '';
+            }
+            if (index > 0 && arr[index - 1] === '') {
+                return formatTagWord('_' + word);
+            }
+            return formatTagWord(word);
+        }).filter(word => word !== '');
         return capitalizeFirst(words.join(' '));
     }).join(' / ');
 }
@@ -47,7 +55,7 @@ function tagToBlockReference(tag: string = "main-index"): string {
 }
 
 function getBlockRegex(blockRef: string): RegExp {
-    return new RegExp(`(?:^>.*\\n)*>\\s*\\${blockRef}$`, "gm");
+    return new RegExp(`^(?:>\\s*\\[!example\\].*\\n)(?:>.*\\n)*(?:>\\s*\\${blockRef}$)`, "gm");
 }
 
 function filenameToHeader(filename: string): string {
@@ -273,10 +281,24 @@ class IndexNote {
             }
             writtenBlocks.add(blockReference);
         });
-        // Remove untracked indices, in case the index tag was changed
+        // Remove untracked indices and duplicates of tracked indices
         Array.from(result.matchAll(/\^indexof-(?:[a-zA-Z0-9]+-?)+/g)).forEach(existingReference => {
-            if (!writtenBlocks.has(existingReference[0])) {
-                result = result.replace(getBlockRegex(existingReference[0]), "");
+            const blockRegex = getBlockRegex(existingReference[0]);
+            let matches = Array.from(result.matchAll(blockRegex));
+            let deletedOffset = 0;
+            let i = -1;
+            for (let match of matches) {
+                i++;
+                if (writtenBlocks.has(existingReference[0]) && i === 0) {
+                    continue;
+                }
+                if (match.index === undefined) {
+                    continue;
+                }
+                let startIndex = match.index - deletedOffset;
+                let endIndex = startIndex + match[0].length;
+                deletedOffset += match[0].length;
+                result = result.slice(0, startIndex) + result.slice(endIndex);
             }
         });
         return result;
