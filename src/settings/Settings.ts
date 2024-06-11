@@ -125,7 +125,7 @@ export class IndexNotesSettingTab extends PluginSettingTab {
     }
 
     add_exclude_folders_setting() {
-        new Setting(this.containerEl).setName("Add excluded folder").setHeading();
+        new Setting(this.containerEl).setName("Excluded folders from indexing").setHeading();
 
         this.plugin.settings.exclude_folders.forEach((template, index) => {
             const s = new Setting(this.containerEl)
