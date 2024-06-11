@@ -1,7 +1,6 @@
-import { App, Notice, PluginSettingTab, Setting, TFile } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, parseYaml } from 'obsidian';
 import IndexNotesPlugin from "main";
-import { FolderSuggest } from "./suggesters/FolderSuggester";
-import YAML from 'yaml'
+import { FolderSuggest } from "./FolderSuggester";
 
 export interface IndexNotesSettings {
     update_interval_seconds: number;
@@ -33,7 +32,6 @@ export class IndexNotesSettingTab extends PluginSettingTab {
 
     display(): void {
         this.containerEl.empty();
-        this.containerEl.createEl('h2', { text: 'Settings for Index Notes plugin' });
         this.add_index_tag_setting();
         this.add_meta_index_tag_setting();
         this.add_priority_tag_setting();
@@ -127,18 +125,20 @@ export class IndexNotesSettingTab extends PluginSettingTab {
     }
 
     add_exclude_folders_setting() {
-        this.containerEl.createEl("h2", { text: "Excluded folders from indexing" });
+        new Setting(this.containerEl).setName("Add excluded folder").setHeading();
 
         this.plugin.settings.exclude_folders.forEach((template, index) => {
             const s = new Setting(this.containerEl)
                 .addSearch((cb) => {
-                    new FolderSuggest(cb.inputEl);
+                    // @ts-ignore
+                    new FolderSuggest(this.plugin.app, cb.inputEl);
                     cb.setPlaceholder("Example: folder1/template_file")
                         .setValue(template)
                         .onChange((new_template) => {
                             try {
                                 if (new_template && this.plugin.settings.exclude_folders.includes(new_template)) {
                                     new Notice("Folder is already excluded");
+                                    cb.setValue("");
                                 } else {
                                     this.plugin.settings.exclude_folders[index] = new_template;
                                     this.plugin.saveSettings();
@@ -191,7 +191,7 @@ export class IndexNotesSettingTab extends PluginSettingTab {
                 cb.setValue(this.plugin.settings.metadata_template)
                     .onChange(async (value) => {
                         try {
-                            YAML.parse(value.replace(/{{/g, '"{{').replace(/}}/g, '}}"'));
+                            parseYaml(value.replace(/{{/g, '"{{').replace(/}}/g, '}}"'));
                             cb.inputEl.removeClass("index-notes-metadata-template-error");
                             this.plugin.settings.metadata_template = value;
                             await this.plugin.saveSettings();

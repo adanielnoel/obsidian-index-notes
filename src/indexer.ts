@@ -175,7 +175,7 @@ class Node {
             const child = this.children.find(child => child.tagComponent() === nextComponent);
             return child ? child.findChildNode(tagPath) : undefined;
         }
-        console.log("ERROR: did not find node at path \"" + tagPath + "\"");
+        console.error("Did not find node at path \"" + tagPath + "\"");
         return undefined;
     }
 
@@ -204,7 +204,7 @@ class Node {
             const newNode = new Node(nextTagPath, this.settings, this.app);
             const success = newNode.addNoteWithPath(tagPath, note, hasPriority, isIndex);
             if (!success) {
-                console.log("ERROR: could not add path for note: ", tagPath + "|" + nextTagPath, this);
+                console.error("Could not add path for note: ", tagPath + "|" + nextTagPath, this);
             }
             this.children.push(newNode);
             return success;
@@ -343,7 +343,7 @@ export class IndexUpdater {
                     fileTags = fileTags.split(',').map(tag => tag.trim());
                 }
                 if (!fileTags || !Array.isArray(fileTags)) {
-                    console.log("File tags are not an array: ", fileTags);
+                    console.error("File tags are not an array: ", fileTags);
                     return;
                 }
                 const hasPriorityTag = fileTags.includes(this.settings.priority_tag);
