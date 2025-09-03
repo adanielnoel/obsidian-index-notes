@@ -124,7 +124,7 @@ class Node {
     getIndex(indexNote: TFile, indentLevel: number = 0): string {
         let indexTxt = this.priorityNotes.concat(this.regularNotes, this.indexNotes).filter(note => note.path !== indexNote.path).map(note => {
             const mdLink = this.app.fileManager.generateMarkdownLink(note, indexNote.path, undefined, filenameToHeader(note.name));
-            const noteTitle = getNoteTitle(note, this.app, ": ");
+            const noteTitle = this.settings.show_note_title ? getNoteTitle(note, this.app, ": ") : "";
             return `> ${'\t'.repeat(indentLevel)}- ${this.priorityNotes.includes(note) ? '**' : ''}${mdLink}${noteTitle}${this.priorityNotes.includes(note) ? '**' : ''}\n`;
         }).join('');
 
@@ -153,13 +153,13 @@ class Node {
 
         [...priorityNotes].sort((a, b) => compareStrings(a.name, b.name)).forEach(note => {
             const mdLink = this.app.fileManager.generateMarkdownLink(note, indexNote.path, undefined, filenameToHeader(note.name));
-            const noteTitle = getNoteTitle(note, this.app, ": ");
+            const noteTitle = this.settings.show_note_title ? getNoteTitle(note, this.app, ": ") : "";
             indexTxt += `> \n> > [!tldr] ${mdLink}${noteTitle}\n`;
         });
 
         [...notes].sort((a, b) => compareStrings(a.name, b.name)).forEach(note => {
             const mdLink = this.app.fileManager.generateMarkdownLink(note, indexNote.path, undefined, filenameToHeader(note.name));
-            const noteTitle = getNoteTitle(note, this.app, ": ");
+            const noteTitle = this.settings.show_note_title ? getNoteTitle(note, this.app, ": ") : "";
             indexTxt += `> \n> > [!example] ${mdLink}${noteTitle}\n`;
         });
 
