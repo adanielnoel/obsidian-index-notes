@@ -1,7 +1,5 @@
-import { App, PluginSettingTab, TFile } from 'obsidian';
-import IndexNotesPlugin from "main";
+import { App, TFile } from 'obsidian';
 import { IndexNotesSettings } from 'src/settings/Settings';
-import { title } from 'process';
 
 function stringHash(s: string): string {
     let hash = 0;
@@ -74,8 +72,14 @@ function canonicalizeTag(tag: string): string {
 }
 
 function getNoteTitle(note: TFile, app: App, prefix: string = ""): string {
+    if (!note || !app || !note.path) {
+        return "";
+    }
     const noteTitle = app.metadataCache.getCache(note.path)?.frontmatter?.title;
-    return noteTitle ? prefix + (noteTitle.length > 50 ? noteTitle.substring(0, 50) + "..." : noteTitle) : "";
+    if (!noteTitle || typeof noteTitle !== 'string') {
+        return "";
+    }
+    return prefix + (noteTitle.length > 50 ? noteTitle.substring(0, 50) + "..." : noteTitle);
 }
 
 function sortable(s: string): string {
@@ -311,9 +315,16 @@ class IndexNote {
 class IndexSchema {
     indexNotes: IndexNote[] = [];
     rootNode: Node;
+    indexNoteContents: Map<string, string> = new Map(); // filepath -> content hash
 
     getHash(): string {
-        return stringHash(this.rootNode.getHash() + this.indexNotes.map(n => n.getHash()).join());
+        // Include both structure and actual content of index files
+        const structureHash = this.rootNode.getHash() + this.indexNotes.map(n => n.getHash()).join();
+        const contentHashes = Array.from(this.indexNoteContents.entries())
+            .sort(([a], [b]) => a.localeCompare(b)) // Sort for consistency
+            .map(([path, contentHash]) => `${path}:${contentHash}`)
+            .join('|');
+        return stringHash(structureHash + '||CONTENT||' + contentHashes);
     }
 }
 
@@ -321,30 +332,98 @@ export class IndexUpdater {
     app: App;
     settings: IndexNotesSettings;
     previousHash: string = "";
+    private updateTimeout: number | null = null;
+    private isUpdating: boolean = false;
+    private lastSuccessfulUpdate: number = 0;
+    private consecutiveFailures: number = 0;
+    private healthCheckInterval: number | null = null;
+    private recentlyModifiedFiles: Map<string, number> = new Map(); // filepath -> timestamp
 
     constructor(app: App, settings: IndexNotesSettings) {
         this.app = app;
         this.settings = settings;
+        this.startHealthCheck();
     }
 
-    scan(): IndexSchema {
+    setupEventListeners(): void {
+        // Listen for file changes that might affect indices
+        this.app.vault.on('create', this.scheduleUpdate.bind(this));
+        this.app.vault.on('delete', this.scheduleUpdate.bind(this));
+        this.app.vault.on('rename', this.scheduleUpdate.bind(this));
+        this.app.vault.on('modify', this.onFileModified.bind(this));
+        this.app.metadataCache.on('changed', this.scheduleUpdate.bind(this));
+    }
+
+    private onFileModified(file: any): void {
+        // Only trigger updates for relevant modifications
+        if (!file || !file.path) return;
+
+        const now = Date.now();
+        this.recentlyModifiedFiles.set(file.path, now);
+
+        // Check if the modified file is an index note or might contain stale indices
+        const frontmatter = this.app.metadataCache.getCache(file.path)?.frontmatter;
+        const fileTags = frontmatter?.tags || [];
+        const hasIndexTags = Array.isArray(fileTags)
+            ? fileTags.some((tag: string) =>
+                tag.endsWith(`/${this.settings.index_tag}`) ||
+                tag.endsWith(`/${this.settings.meta_index_tag}`)
+            )
+            : false;
+
+        if (hasIndexTags) {
+            // Index note was modified - use longer delay to avoid conflicts with Obsidian's save
+            this.scheduleUpdate(3000);
+        } else {
+            // Check if file might have stale index blocks that need cleanup
+            this.app.vault.read(file).then(content => {
+                if (content.includes('^indexof-')) {
+                    this.scheduleUpdate();
+                }
+            }).catch(() => {
+                // Ignore read errors
+            });
+        }
+    }
+
+    private scheduleUpdate(delay: number = 1000): void {
+        // Debounce updates to avoid excessive processing
+        if (this.updateTimeout) {
+            window.clearTimeout(this.updateTimeout);
+        }
+
+        this.updateTimeout = window.setTimeout(() => {
+            if (!this.isUpdating) {
+                this.update();
+            }
+        }, delay);
+    }
+
+    async scan(): Promise<IndexSchema> {
         const excludedFolders = this.settings.exclude_folders.filter(f => f.length > 0);
         const mdFiles = this.app.vault.getMarkdownFiles().filter(f => !excludedFolders.some(excl => f.path.startsWith(excl)));
         const indexSchema = new IndexSchema();
         const rootNode = new Node("", this.settings, this.app);
         const regexIndexTagComponents = new RegExp(`(?:^|(?:\/))(?:${this.settings.index_tag})|(?:${this.settings.meta_index_tag})$`);
         const regexContainsIndex = /\^indexof-(?:[a-zA-Z0-9]+-?)+/g;
-        mdFiles.forEach(note => {
+
+        // Process files with proper async handling
+        for (const note of mdFiles) {
+            if (!note || !note.path) {
+                console.warn("Invalid note encountered during scan");
+                continue;
+            }
+
             const frontmatter = this.app.metadataCache.getCache(note.path)?.frontmatter;
             const indexNote = new IndexNote(note, this.app, this.settings);
-            if (frontmatter) {
+            if (frontmatter && frontmatter.tags) {
                 let fileTags: string | string[] | undefined = frontmatter.tags;
                 if (typeof fileTags === 'string') {
-                    fileTags = fileTags.split(',').map(tag => tag.trim());
+                    fileTags = fileTags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
                 }
-                if (!fileTags || !Array.isArray(fileTags)) {
-                    console.error("File tags are not an array: ", fileTags);
-                    return;
+                if (!Array.isArray(fileTags)) {
+                    console.warn(`File ${note.path} has invalid tags format:`, fileTags);
+                    continue;
                 }
                 const hasPriorityTag = fileTags.includes(this.settings.priority_tag);
                 fileTags.forEach(tag => {
@@ -364,29 +443,158 @@ export class IndexUpdater {
 
             if (indexNote.indexTags.length || indexNote.metaIndexTags.length) {
                 indexSchema.indexNotes.push(indexNote);
+
+                // Read and hash the content of index notes to detect manual changes
+                try {
+                    const content = await this.app.vault.read(note);
+                    const contentHash = stringHash(content);
+                    indexSchema.indexNoteContents.set(note.path, contentHash);
+                } catch (error) {
+                    console.error(`Failed to read index note ${note.path} for content hashing:`, error);
+                }
             } else {
-                this.app.vault.read(note).then(v => {
-                    // Add notes with regular note with stale indices so they will be cleaned up
-                    if (v.match(regexContainsIndex)) {
+                try {
+                    // Check if note has stale indices that need cleanup
+                    const content = await this.app.vault.read(note);
+                    if (content.match(regexContainsIndex)) {
                         indexSchema.indexNotes.push(indexNote);
+                        // Also hash content for stale index cleanup notes
+                        const contentHash = stringHash(content);
+                        indexSchema.indexNoteContents.set(note.path, contentHash);
                     }
-                });
+                } catch (error) {
+                    console.error(`Failed to read note ${note.path} for stale index cleanup:`, error);
+                }
             }
-        });
+        }
         rootNode.sortAll();
         indexSchema.rootNode = rootNode;
         return indexSchema;
     }
 
-    update(): void {
+    async update(): Promise<void> {
+        if (this.isUpdating) {
+            return; // Prevent concurrent updates
+        }
+
+        this.isUpdating = true;
         const t0 = Date.now();
-        const indexSchema = this.scan();
-        indexSchema.indexNotes.forEach(indexNote => {
-            const indexBlocks = indexNote.createIndexBlocks(indexSchema.rootNode);
-            this.app.vault.process(indexNote.note, data => {
-                return indexNote.getUpdatedContent(data, indexBlocks);
+
+        try {
+            const indexSchema = await this.scan();
+
+            const currentHash = indexSchema.getHash();
+
+            // Only update if something has changed
+            if (currentHash === this.previousHash) {
+                this.lastSuccessfulUpdate = Date.now(); // Still count as successful
+                return;
+            }
+
+            // Clean up old entries from recently modified files (older than 5 seconds)
+            const cutoffTime = Date.now() - 5000;
+            for (const [filepath, timestamp] of this.recentlyModifiedFiles.entries()) {
+                if (timestamp < cutoffTime) {
+                    this.recentlyModifiedFiles.delete(filepath);
+                }
+            }
+
+            // Process each index note with error handling
+            const updatePromises = indexSchema.indexNotes.map(async (indexNote) => {
+                try {
+                    const indexBlocks = indexNote.createIndexBlocks(indexSchema.rootNode);
+                    await this.processIndexNoteWithRetry(indexNote, indexBlocks);
+                } catch (error) {
+                    console.error(`Failed to update index in ${indexNote.note.path}:`, error);
+                }
             });
-        });
-        // console.log("Updating took " + (Date.now() - t0) + " ms");
+
+            await Promise.all(updatePromises);
+
+            this.previousHash = currentHash;
+            this.lastSuccessfulUpdate = Date.now();
+            this.consecutiveFailures = 0;
+
+            console.log(`Index update completed in ${Date.now() - t0} ms`);
+        } catch (error) {
+            console.error("Failed to update indices:", error);
+            this.consecutiveFailures++;
+        } finally {
+            this.isUpdating = false;
+        }
+    }
+
+    private async processIndexNoteWithRetry(indexNote: any, indexBlocks: any, maxRetries: number = 3): Promise<void> {
+        const filePath = indexNote.note.path;
+
+        const recentModificationTime = this.recentlyModifiedFiles.get(filePath);
+
+        // If file was recently modified, wait additional time to avoid conflicts
+        if (recentModificationTime) {
+            const timeSinceModification = Date.now() - recentModificationTime;
+            if (timeSinceModification < 2000) { // Less than 2 seconds ago
+                const additionalDelay = 2000 - timeSinceModification;
+                await new Promise(resolve => setTimeout(resolve, additionalDelay));
+            }
+        }
+
+        let lastError: Error | null = null;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await this.app.vault.process(indexNote.note, data => {
+                    return indexNote.getUpdatedContent(data, indexBlocks);
+                });
+                return; // Success - exit retry loop
+            } catch (error) {
+                lastError = error as Error;
+                console.warn(`Attempt ${attempt}/${maxRetries} failed for ${filePath}: ${error}`);
+
+                if (attempt < maxRetries) {
+                    // Exponential backoff: 500ms, 1000ms, 2000ms
+                    const delay = 500 * Math.pow(2, attempt - 1);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        // All retries failed
+        throw new Error(`Failed to update index after ${maxRetries} attempts: ${lastError?.message}`);
+    }
+
+    private startHealthCheck(): void {
+        // Check health every 30 seconds
+        this.healthCheckInterval = window.setInterval(() => {
+            this.performHealthCheck();
+        }, 30000);
+    }
+
+    private performHealthCheck(): void {
+        const now = Date.now();
+        const maxIdleTime = 120000 * 10; // 10x the 2-minute fixed interval (20 minutes)
+
+        if (this.lastSuccessfulUpdate > 0 && (now - this.lastSuccessfulUpdate) > maxIdleTime) {
+            console.warn(`Index system appears stalled. Last successful update: ${new Date(this.lastSuccessfulUpdate).toISOString()}`);
+
+            if (this.consecutiveFailures > 3) {
+                console.error("Index system has failed multiple times. Consider restarting Obsidian.");
+            } else {
+                console.log("Attempting recovery update...");
+                this.scheduleUpdate();
+            }
+        }
+    }
+
+    cleanup(): void {
+        if (this.updateTimeout) {
+            window.clearTimeout(this.updateTimeout);
+            this.updateTimeout = null;
+        }
+
+        if (this.healthCheckInterval) {
+            window.clearInterval(this.healthCheckInterval);
+            this.healthCheckInterval = null;
+        }
+
+        this.recentlyModifiedFiles.clear();
     }
 }

@@ -39,8 +39,7 @@ You can install this plugin through the **Community plugins** interface in Obsid
 
 If indices are not appearing as expected, ensure that:
 - Tags are correctly spelled and used consistently.
-- The update interval is appropriately set according to your needs.
-- If the indices don't seem to update, try `view > Force Reload` or restart Obsidian.
+- If the indices don't seem to update, you can use the "Refresh all indices" command from the command palette.
 - If the block reference of the index is modified or deleted, the plugin will fail to detect the existing index and append a new index block rather than update it. If this happens, just delete the old block.
 
 ## Credits

@@ -8,6 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Build**: `npm run build` - Runs TypeScript type checking and creates production build
 - **Version**: `npm run version` - Bumps version in manifest.json and versions.json, then stages files for commit
 
+## Plugin Commands
+
+- **New note with same location and tags** - Creates a new note in the same folder with copied tags from the current file
+- **Refresh all indices** - Manually triggers a complete index regeneration (useful for troubleshooting)
+
 ## Project Architecture
 
 This is an **Obsidian plugin** that automatically generates and maintains index blocks within notes based on hierarchical tags. The plugin scans the vault for notes with specific tag patterns and creates organized, nested lists of links.
@@ -36,11 +41,25 @@ This is an **Obsidian plugin** that automatically generates and maintains index 
 
 ### Update Mechanism
 
-The plugin runs on a configurable interval (default 5 seconds) to:
+The plugin uses a hybrid approach for maximum responsiveness and reliability:
+
+**Real-time Event-Driven Updates:**
+- Listens for file creation, deletion, rename, and modification events
+- Responds immediately to metadata changes
+- Smart filtering to only process relevant changes (index notes or files with index blocks)
+- 1-second debouncing to batch rapid changes
+
+**Periodic Safety Updates:**
+- Fixed 2-minute interval as failsafe to catch any missed changes
+- Health monitoring system detects stalled updates
+- Automatic recovery attempts for failed operations
+
+**Update Process:**
 1. Scan all vault files for tag changes
-2. Build a tree structure from hierarchical tags
+2. Build a tree structure from hierarchical tags  
 3. Generate formatted markdown index blocks
 4. Update existing blocks using block references or append new ones
+5. Concurrent processing with proper error handling
 
 ## Development Notes
 
