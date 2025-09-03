@@ -1,7 +1,7 @@
 {
 	"id": "index-notes",
 	"name": "Index Notes",
-	"version": "1.0.1",
+	"version": "1.1.0",
 	"minAppVersion": "0.15.0",
 	"description": "Keep your notes indexed based on their (hierarchical) tags",
 	"author": "Alejandro Daniel Noel",
