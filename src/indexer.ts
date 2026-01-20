@@ -67,8 +67,18 @@ function getLastTagComponent(tagPath: string): string {
     return tagPath.split('/').pop()!;
 }
 
-function canonicalizeTag(tag: string): string {
-    return tag.trim().toLowerCase().replace(/^\/|\/$/g, '');
+function canonicalizeTag(tag: unknown): string {
+    if (tag == null) {
+        return '';
+    }
+    if (typeof tag !== 'string') {
+        try {
+            tag = String(tag);
+        } catch {
+            return '';
+        }
+    }
+    return (tag as string).trim().toLowerCase().replace(/^\/|\/$/g, '');
 }
 
 function getNoteTitle(note: TFile, app: App, prefix: string = ""): string {
@@ -416,19 +426,31 @@ export class IndexUpdater {
 
             const frontmatter = this.app.metadataCache.getCache(note.path)?.frontmatter;
             const indexNote = new IndexNote(note, this.app, this.settings);
-            if (frontmatter && frontmatter.tags) {
-                let fileTags: string | string[] | undefined = frontmatter.tags;
-                if (typeof fileTags === 'string') {
-                    fileTags = fileTags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+            if (frontmatter && ('tags' in frontmatter)) {
+                const tagsValue = (frontmatter as any).tags;
+                let fileTagsArray: string[] = [];
+                if (typeof tagsValue === 'string') {
+                    fileTagsArray = tagsValue
+                        .split(',')
+                        .map(t => t.trim())
+                        .filter(t => t.length > 0);
+                } else if (Array.isArray(tagsValue)) {
+                    fileTagsArray = tagsValue
+                        .map(t => (typeof t === 'string' ? t : String(t ?? '')).trim())
+                        .filter(t => t.length > 0);
+                } else if (tagsValue == null) {
+                    fileTagsArray = [];
+                } else {
+                    console.warn(`File ${note.path} has invalid tags format:`, tagsValue);
+                    fileTagsArray = [];
                 }
-                if (!Array.isArray(fileTags)) {
-                    console.warn(`File ${note.path} has invalid tags format:`, fileTags);
-                    continue;
-                }
-                const hasPriorityTag = fileTags.includes(this.settings.priority_tag);
-                fileTags.forEach(tag => {
+                const hasPriorityTag = fileTagsArray.some(t => canonicalizeTag(t) === this.settings.priority_tag);
+                fileTagsArray.forEach(tag => {
                     const canonicalTag = canonicalizeTag(tag);
-                    const cleanTagPath = canonicalizeTag(canonicalTag.replace(regexIndexTagComponents, ""));
+                    if (!canonicalTag) {
+                        return;
+                    }
+                    const cleanTagPath = canonicalizeTag((canonicalTag as string).replace(regexIndexTagComponents, ""));
                     if (getLastTagComponent(canonicalTag) === this.settings.index_tag) {
                         indexNote.indexTags.push(cleanTagPath);
                         rootNode.addNoteWithPath(cleanTagPath, note, hasPriorityTag, true);
