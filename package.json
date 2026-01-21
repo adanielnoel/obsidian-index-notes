@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-sample-plugin",
-	"version": "1.1.1",
+	"version": "1.1.2",
 	"description": "Automatically update index notes from your hierarchical tags!",
 	"main": "main.js",
 	"scripts": {
