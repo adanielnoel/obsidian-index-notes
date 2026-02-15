@@ -1,3 +1,7 @@
+## 1.1.3 - 2026-02-15
+
+- Add support for inline tags
+
 ## 1.1.2 - 2026-01-21
 
 - Version bump and packaging for release.
