@@ -1,4 +1,4 @@
-import { Plugin, Modal, App, Setting } from 'obsidian';
+import { Plugin, Modal, App, Setting, getAllTags } from 'obsidian';
 import { DEFAULT_SETTINGS, IndexNotesSettings, IndexNotesSettingTab } from 'src/settings/Settings';
 import { IndexUpdater } from 'src/indexer';
 import dateFormat from "dateformat";
@@ -114,8 +114,9 @@ export default class IndexNotesPlugin extends Plugin {
 
 		let metadata_cache = this.app.metadataCache.getCache(current_filepath);
 		let file_tags: string[] = [];
-		if (metadata_cache?.frontmatter?.tags) {
-			const tags = metadata_cache.frontmatter.tags;
+		if (metadata_cache) {
+			const regexHashtag = new RegExp(`^#`);
+			const tags = getAllTags(metadata_cache)?.map((tag) => tag.replace(regexHashtag, ""));
 			if (Array.isArray(tags)) {
 				file_tags = tags.filter(t => t && t !== this.settings.index_tag);
 			} else if (typeof tags === 'string') {

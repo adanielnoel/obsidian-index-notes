@@ -1,5 +1,7 @@
-import { App, TFile } from 'obsidian';
+import { App, TFile, getAllTags } from 'obsidian';
 import { IndexNotesSettings } from 'src/settings/Settings';
+
+const regexHashtag = new RegExp(`^#`);
 
 function stringHash(s: string): string {
     let hash = 0;
@@ -372,8 +374,10 @@ export class IndexUpdater {
         this.recentlyModifiedFiles.set(file.path, now);
 
         // Check if the modified file is an index note or might contain stale indices
-        const frontmatter = this.app.metadataCache.getCache(file.path)?.frontmatter;
-        const fileTags = frontmatter?.tags || [];
+        const cache = this.app.metadataCache.getCache(file.path);
+
+        let fileTags: string[] = [];
+        if (cache) fileTags = getAllTags(cache)?.map((tag) => tag.replace(regexHashtag, "")) || [];
         const hasIndexTags = Array.isArray(fileTags)
             ? fileTags.some((tag: string) =>
                 tag.endsWith(`/${this.settings.index_tag}`) ||
@@ -424,17 +428,16 @@ export class IndexUpdater {
                 continue;
             }
 
-            const frontmatter = this.app.metadataCache.getCache(note.path)?.frontmatter;
+            const cache = this.app.metadataCache.getCache(note.path);
+
+            let fileTags: string[] = [];
+            if (cache) fileTags = getAllTags(cache)?.map((tag) => tag.replace(regexHashtag, "")) || [];
             const indexNote = new IndexNote(note, this.app, this.settings);
-            if (frontmatter && ('tags' in frontmatter)) {
-                const tagsValue = (frontmatter as any).tags;
+
+            if (fileTags && fileTags.length > 0) {
+                const tagsValue = fileTags;
                 let fileTagsArray: string[] = [];
-                if (typeof tagsValue === 'string') {
-                    fileTagsArray = tagsValue
-                        .split(',')
-                        .map(t => t.trim())
-                        .filter(t => t.length > 0);
-                } else if (Array.isArray(tagsValue)) {
+                if (Array.isArray(tagsValue)) {
                     fileTagsArray = tagsValue
                         .map(t => (typeof t === 'string' ? t : String(t ?? '')).trim())
                         .filter(t => t.length > 0);
